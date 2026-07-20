@@ -1,0 +1,23 @@
+node_modules
+npm-debug.log*
+
+.env
+.env.*
+!.env.example
+
+.git
+.gitignore
+
+# Local storage test artifacts — the app creates this directory itself,
+# but don't bake any locally-generated uploads into the image. Keep
+# src/fixtures/ (needed at runtime by GET /health/lens) out of this rule.
+src/storage/*
+!src/storage/.gitkeep
+
+*.md
+!README.md
+
+.claude
+.vscode
+.idea
+.DS_Store
