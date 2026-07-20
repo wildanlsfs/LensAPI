@@ -8,8 +8,8 @@ deployed as a standalone Docker service on Coolify, backed by
 for Google Lens's internal OCR endpoint (see [PRD.md](./PRD.md) §2 for the caveats that come
 with that).
 
-Full functional/non-functional spec: [PRD.md](./PRD.md). Phased build history:
-[IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md).
+Full functional/non-functional spec: [PRD.md](./PRD.md). API reference: [API.md](./API.md).
+Phased build history: [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md).
 
 ## Local development
 
@@ -35,98 +35,9 @@ curl localhost:3000/health
   image, so you can tell "the service is up but Google Lens itself is unreachable/blocked"
   apart from plain process liveness.
 
-The full request/response contract (exact JSON shapes, error codes, example curl calls) is
-documented in [PRD.md](./PRD.md) §3.1–3.2. See "Chat app integration" below for exactly what
-your chat app backend needs to send and handle.
-
-## Chat app integration
-
-This is what the chat app backend needs to know to call LensAPI. LensAPI has no concept of
-your app's users or sessions — it's a stateless, service-to-service OCR call gated by a single
-shared `API_KEY`. Your chat app backend should call it server-side (not directly from the
-client), so the API key never reaches end users.
-
-### Request
-
-```
-POST https://<your-lensapi-domain>/v1/ocr
-Content-Type: multipart/form-data
-X-API-Key: <shared secret, same value as LensAPI's API_KEY env var>
-
-image=<binary file, field name "image", JPEG/PNG/WebP, up to MAX_FILE_SIZE_MB>
-```
-
-Example:
-
-```bash
-curl -X POST https://lensapi.example.com/v1/ocr \
-  -H "X-API-Key: $LENSAPI_KEY" \
-  -F "image=@photo.jpg"
-```
-
-### Success response — `200`
-
-```json
-{
-  "id": "1784512465208-073e4425-d1a3-418d-adc3-0804c9eb0811",
-  "language": "en",
-  "text": "Hello World\nVisit https://example.com/page",
-  "segments": [
-    {
-      "text": "Hello World",
-      "boundingBox": {
-        "centerPerX": 0.5, "centerPerY": 0.2, "perWidth": 0.4, "perHeight": 0.1,
-        "pixelCoords": { "x": 60, "y": 12, "width": 120, "height": 24 }
-      }
-    }
-  ],
-  "links": {
-    "detected": [{ "type": "detected", "url": "https://example.com/page" }],
-    "search": { "type": "search", "url": "https://www.google.com/search?q=Hello%20World..." }
-  },
-  "expiresAt": "2026-07-27T01:54:25.213Z"
-}
-```
-
-Rendering guidance:
-- `text` — the safest default: show it as OCR'd text, e.g. in a reply bubble.
-- `segments[].boundingBox` — only useful if you want to overlay text on the original image
-  (e.g. highlight regions); most chat UIs can ignore this and just use `text`.
-- `links.detected` — real URLs found in the image text (e.g. a photographed business card or
-  poster). Consider rendering these as tappable link chips.
-- `links.search` — a "search this text on Google" convenience link, not a Google Lens visual
-  search. Present it as a secondary action, not the primary result.
-- `id` / `expiresAt` — **the uploaded image itself is deleted from LensAPI's storage after
-  `expiresAt` (7 days by default).** LensAPI does not expose a way to re-fetch the original
-  image by `id` at all — there is no `GET /v1/ocr/:id` endpoint. If your chat app needs to keep
-  showing the source image long after upload, store your own copy; don't rely on LensAPI as
-  image storage.
-
-### Error responses
-
-| Status | Body shape | Meaning | Suggested handling |
-|---|---|---|---|
-| `400` | `{ "error": "invalid_file", "message": "..." }` | Missing file, or wrong mimetype (not JPEG/PNG/WebP) | Surface a "unsupported image format" message to the user |
-| `400` | `{ "error": "file_too_large", "message": "..." }` | Upload exceeds `MAX_FILE_SIZE_MB` | Surface a "image too large" message; consider client-side resizing before upload |
-| `400` | `{ "error": "upload_error", "message": "..." }` | Other multipart/Multer validation failure | Generic "upload failed, try again" |
-| `401` | `{ "error": "unauthorized", "message": "..." }` | Missing/wrong `X-API-Key` | Backend config bug — should never reach real users; log and alert, don't surface raw to end users |
-| `429` | `{ "error": "rate_limited", "message": "..." }` | Too many requests from this backend's IP in the current window | Retry with backoff; if this happens routinely in prod, the rate limit constant in LensAPI may need raising |
-| `502` | `{ "error": "lens_upstream_error", "message": "..." }` | Google's Lens endpoint failed/changed/blocked the request — **this is the one failure mode that isn't really "your" bug** | Surface a friendly "couldn't read text from that image right now, try again shortly" — don't retry immediately in a tight loop, since a 502 here often means Google is rate-limiting or has changed the endpoint (see "Known limitations") |
-| `500` | `{ "error": "internal_error", "message": "..." }` | Unexpected server-side failure, not one of the above | Generic "something went wrong" + log for investigation |
-
-Every error response is a flat `{ "error": "<code>", "message": "<human-readable>" }` shape,
-so a single client-side switch on `error` (not on HTTP status alone) is enough to branch UI
-behavior — HTTP status tells you the category, `error` tells you the specific case.
-
-### Operational notes for the chat app team
-
-- Treat `/health/lens` (see above) as a separate signal from `/health` when monitoring —
-  if it starts failing while `/health` stays green, that's Google's endpoint breaking, not a
-  LensAPI outage, and no amount of retrying/redeploying LensAPI will fix it (see
-  [PRD.md](./PRD.md) §2).
-- There's no per-end-user auth or usage tracking in LensAPI itself — if you need per-user rate
-  limits, quotas, or abuse prevention beyond the blanket IP-based limit, enforce that in your
-  chat app backend before calling LensAPI, not after.
+Full endpoint-by-endpoint reference (request/response shapes, every error code, field-by-field
+rendering guidance for the chat app) lives in **[API.md](./API.md)** — that's the doc to hand
+to whoever's integrating this into the chat app backend.
 
 ## Docker
 
