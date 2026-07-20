@@ -1,5 +1,7 @@
 import multer from 'multer';
 
+import { LensUpstreamError } from '../errors/LensUpstreamError.js';
+
 // Central Express error handler — implemented in Phase 2 (Multer errors) and
 // Phase 3 (Lens upstream errors).
 //
@@ -19,6 +21,19 @@ export default function errorHandler(err, req, res, next) {
     return res.status(400).json({
       error: 'upload_error',
       message: err.message,
+    });
+  }
+
+  if (err instanceof LensUpstreamError) {
+    // Reverse-engineered upstream (PRD §2 "known fragility") — surface a
+    // distinct, non-500 error so callers (chat app / ops) can tell "Lens is
+    // down" apart from "our service is broken". Log full detail (including
+    // the wrapped cause) server-side; never leak internals to the client.
+    console.error('Lens upstream error:', err.cause || err);
+
+    return res.status(502).json({
+      error: 'lens_upstream_error',
+      message: 'Google Lens OCR service returned an error.',
     });
   }
 
