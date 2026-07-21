@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1
-
 # ---- deps stage -------------------------------------------------------
 # Installs only production dependencies. Isolated in its own stage (and
 # copied via COPY --from=deps below) purely so the npm cache/layer this
