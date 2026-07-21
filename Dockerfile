@@ -46,11 +46,27 @@ RUN mkdir -p /app/src/storage
 
 # Run as a non-root user for defense in depth. The official Node image
 # already ships a low-privilege `node` user (uid/gid 1000) — reuse it
-# instead of creating a new one. Ownership must be fixed up before
-# dropping privileges so the app can write uploaded files and node-cron
-# can delete expired ones under /app/src/storage.
+# instead of creating a new one. This chown covers the image's own layers;
+# it does NOT cover whatever gets mounted at /app/src/storage at runtime
+# (a Coolify/Docker volume's ownership on the host wins over this), which
+# is why docker-entrypoint.sh re-fixes ownership at container start too.
 RUN chown -R node:node /app
-USER node
+
+# gosu lets the entrypoint start as root (needed to chown the mounted
+# volume, which a non-root user can't do) and then drop to the `node` user
+# before actually running the app — safer than `su`/`sudo` for PID 1 in
+# containers (proper signal forwarding, no extra shell/zombie process).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gosu \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Container starts as root (image default) so the entrypoint can chown the
+# mounted volume; it execs into the `node` user itself before running CMD,
+# so the application process never actually runs as root.
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 # Minimal-image note: node:20-bookworm-slim does not include curl, and we
 # don't want to add a dependency just for a health probe. Node's built-in

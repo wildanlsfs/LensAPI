@@ -10,6 +10,13 @@ import { scheduleCleanup } from './services/cleanup.js';
 
 const app = express();
 
+// Coolify/Cloudflare sit in front of this app and set X-Forwarded-For, which
+// express-rate-limit needs to trust in order to rate-limit by the real client
+// IP instead of the proxy's. `1` trusts exactly one hop (the immediate
+// reverse proxy) rather than the whole X-Forwarded-For chain, which is the
+// safer setting when there's a single known proxy in front of the app.
+app.set('trust proxy', 1);
+
 app.use(helmet());
 app.use(cors());
 app.use(express.json());
